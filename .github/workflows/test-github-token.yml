@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
 
 jobs:
-  test-token:
+  test-token-curl:
     runs-on: ubuntu-latest
     steps:
       - name: Checkout repository
@@ -176,3 +176,85 @@ jobs:
 
           python -m pip install requests
           python test_identify_token.py
+
+  test-python-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run test_github_token.py
+        run: |
+          echo "Running test_github_token.py script..."
+          python test_github_token.py
+
+      - name: Test with different token formats
+        run: |
+          echo "Testing with different token formats..."
+          
+          # Test with token format
+          echo "Testing with 'token' format..."
+          TOKEN_FORMAT=$(curl -s -o token_format.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (token format): $TOKEN_FORMAT"
+          if [ "$TOKEN_FORMAT" = "200" ]; then
+            echo "✅ 'token' format works"
+          else
+            echo "❌ 'token' format failed"
+            cat token_format.json
+          fi
+          
+          # Test with Bearer format
+          echo "Testing with 'Bearer' format..."
+          BEARER_FORMAT=$(curl -s -o bearer_format.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (Bearer format): $BEARER_FORMAT"
+          if [ "$BEARER_FORMAT" = "200" ]; then
+            echo "✅ 'Bearer' format works"
+          else
+            echo "❌ 'Bearer' format failed"
+            cat bearer_format.json
+          fi
+          
+          # Test with no format (just the token)
+          echo "Testing with no format (just the token)..."
+          NO_FORMAT=$(curl -s -o no_format.json -w "%{http_code}" \
+            -H "Authorization: $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (no format): $NO_FORMAT"
+          if [ "$NO_FORMAT" = "200" ]; then
+            echo "✅ No format works"
+          else
+            echo "❌ No format failed"
+            cat no_format.json
+          fi
+
+      - name: Test token scopes
+        run: |
+          echo "Testing token scopes..."
+          SCOPE_RESPONSE=$(curl -s -I \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "Response headers:"
+          echo "$SCOPE_RESPONSE" | grep -i "x-oauth-scopes"
+          echo "$SCOPE_RESPONSE" | grep -i "x-accepted-oauth-scopes"
