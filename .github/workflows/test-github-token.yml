@@ -1,0 +1,260 @@
+name: Test GitHub Token
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test-token-curl:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Test GitHub Token with User Endpoint
+        run: |
+          echo "Testing GitHub Token with User Endpoint..."
+          USER_RESPONSE=$(curl -s -o user_response.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code: $USER_RESPONSE"
+          if [ "$USER_RESPONSE" = "200" ]; then
+            echo "✅ GitHub Token works with User Endpoint"
+            cat user_response.json | jq .login
+          else
+            echo "❌ GitHub Token failed with User Endpoint"
+            cat user_response.json
+          fi
+
+      - name: Test GitHub Token with Bearer Format
+        run: |
+          echo "Testing GitHub Token with Bearer Format..."
+          BEARER_RESPONSE=$(curl -s -o bearer_response.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }})
+          
+          echo "HTTP Status Code: $BEARER_RESPONSE"
+          if [ "$BEARER_RESPONSE" = "200" ]; then
+            echo "✅ GitHub Token works with Bearer Format"
+            cat bearer_response.json | jq .full_name
+          else
+            echo "❌ GitHub Token failed with Bearer Format"
+            cat bearer_response.json
+          fi
+
+      - name: Test GitHub Token with Repo Contents
+        run: |
+          echo "Testing GitHub Token with Repo Contents..."
+          REPO_RESPONSE=$(curl -s -o repo_response.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/contents)
+          
+          echo "HTTP Status Code: $REPO_RESPONSE"
+          if [ "$REPO_RESPONSE" = "200" ]; then
+            echo "✅ GitHub Token works with Repo Contents"
+            cat repo_response.json | jq '.[0].name'
+          else
+            echo "❌ GitHub Token failed with Repo Contents"
+            cat repo_response.json
+          fi
+
+      - name: Test GitHub Token with Issues
+        run: |
+          echo "Testing GitHub Token with Issues..."
+          ISSUES_RESPONSE=$(curl -s -o issues_response.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/${{ github.repository }}/issues)
+          
+          echo "HTTP Status Code: $ISSUES_RESPONSE"
+          if [ "$ISSUES_RESPONSE" = "200" ]; then
+            echo "✅ GitHub Token works with Issues"
+            cat issues_response.json | jq 'length'
+          else
+            echo "❌ GitHub Token failed with Issues"
+            cat issues_response.json
+          fi
+
+      - name: Test GitHub Token with Rate Limit
+        run: |
+          echo "Testing GitHub Token with Rate Limit..."
+          RATE_RESPONSE=$(curl -s -o rate_response.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/rate_limit)
+          
+          echo "HTTP Status Code: $RATE_RESPONSE"
+          if [ "$RATE_RESPONSE" = "200" ]; then
+            echo "✅ GitHub Token works with Rate Limit"
+            cat rate_response.json | jq .resources.core
+          else
+            echo "❌ GitHub Token failed with Rate Limit"
+            cat rate_response.json
+          fi
+
+      - name: Test GitHub Token with identify_token Function
+        run: |
+          echo "Testing GitHub Token with identify_token Function..."
+          cat > test_identify_token.py << 'EOF'
+          import os
+          import requests
+          from enum import Enum
+
+          class Platform(Enum):
+              INVALID = 0
+              GITHUB = 1
+              GITLAB = 2
+
+          def identify_token(token: str, repo: str = None) -> Platform:
+              """
+              Identifies whether a token belongs to GitHub or GitLab.
+              """
+              # Try GitHub Actions token format (Bearer) with repo endpoint if repo is provided
+              if repo:
+                  github_repo_url = f'https://api.github.com/repos/{repo}'
+                  github_bearer_headers = {
+                      'Authorization': f'Bearer {token}',
+                      'Accept': 'application/vnd.github+json',
+                  }
+
+                  try:
+                      github_repo_response = requests.get(
+                          github_repo_url, headers=github_bearer_headers, timeout=5
+                      )
+                      print(f"Bearer repo response status: {github_repo_response.status_code}")
+                      print(f"Bearer repo response: {github_repo_response.text[:100]}...")
+                      if github_repo_response.status_code == 200:
+                          return Platform.GITHUB
+                  except requests.RequestException as e:
+                      print(f'Error connecting to GitHub API (repo check): {e}')
+
+              # Try GitHub PAT format (token)
+              github_url = 'https://api.github.com/user'
+              github_headers = {'Authorization': f'token {token}'}
+
+              try:
+                  github_response = requests.get(github_url, headers=github_headers, timeout=5)
+                  print(f"Token user response status: {github_response.status_code}")
+                  print(f"Token user response: {github_response.text[:100]}...")
+                  if github_response.status_code == 200:
+                      return Platform.GITHUB
+              except requests.RequestException as e:
+                  print(f'Error connecting to GitHub API: {e}')
+
+              # Try GitLab token
+              gitlab_url = 'https://gitlab.com/api/v4/user'
+              gitlab_headers = {'Authorization': f'Bearer {token}'}
+
+              try:
+                  gitlab_response = requests.get(gitlab_url, headers=gitlab_headers, timeout=5)
+                  print(f"GitLab response status: {gitlab_response.status_code}")
+                  if gitlab_response.status_code == 200:
+                      return Platform.GITLAB
+              except requests.RequestException as e:
+                  print(f'Error connecting to GitLab API: {e}')
+
+              return Platform.INVALID
+
+          if __name__ == "__main__":
+              token = os.environ.get("GITHUB_TOKEN")
+              repo = os.environ.get("GITHUB_REPOSITORY")
+              
+              print(f"Testing token for repo: {repo}")
+              result = identify_token(token, repo)
+              print(f"identify_token result: {result}")
+              
+              if result == Platform.GITHUB:
+                  print("✅ Token identified as GitHub token")
+                  exit(0)
+              else:
+                  print("❌ Token not identified as GitHub token")
+                  exit(1)
+          EOF
+
+          python -m pip install requests
+          python test_identify_token.py
+
+  test-python-script:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install requests
+
+      - name: Run test_github_token.py
+        run: |
+          echo "Running test_github_token.py script..."
+          python test_github_token.py
+
+      - name: Test with different token formats
+        run: |
+          echo "Testing with different token formats..."
+          
+          # Test with token format
+          echo "Testing with 'token' format..."
+          TOKEN_FORMAT=$(curl -s -o token_format.json -w "%{http_code}" \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (token format): $TOKEN_FORMAT"
+          if [ "$TOKEN_FORMAT" = "200" ]; then
+            echo "✅ 'token' format works"
+          else
+            echo "❌ 'token' format failed"
+            cat token_format.json
+          fi
+          
+          # Test with Bearer format
+          echo "Testing with 'Bearer' format..."
+          BEARER_FORMAT=$(curl -s -o bearer_format.json -w "%{http_code}" \
+            -H "Authorization: Bearer $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (Bearer format): $BEARER_FORMAT"
+          if [ "$BEARER_FORMAT" = "200" ]; then
+            echo "✅ 'Bearer' format works"
+          else
+            echo "❌ 'Bearer' format failed"
+            cat bearer_format.json
+          fi
+          
+          # Test with no format (just the token)
+          echo "Testing with no format (just the token)..."
+          NO_FORMAT=$(curl -s -o no_format.json -w "%{http_code}" \
+            -H "Authorization: $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "HTTP Status Code (no format): $NO_FORMAT"
+          if [ "$NO_FORMAT" = "200" ]; then
+            echo "✅ No format works"
+          else
+            echo "❌ No format failed"
+            cat no_format.json
+          fi
+
+      - name: Test token scopes
+        run: |
+          echo "Testing token scopes..."
+          SCOPE_RESPONSE=$(curl -s -I \
+            -H "Authorization: token $GITHUB_TOKEN" \
+            -H "Accept: application/vnd.github+json" \
+            https://api.github.com/user)
+          
+          echo "Response headers:"
+          echo "$SCOPE_RESPONSE" | grep -i "x-oauth-scopes"
+          echo "$SCOPE_RESPONSE" | grep -i "x-accepted-oauth-scopes"
