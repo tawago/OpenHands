@@ -233,7 +233,7 @@ jobs:
           GIT_USERNAME: ${{ secrets.PAT_USERNAME || 'openhands-agent' }}
           PYTHONPATH: ""
         run: |
-          cd /tmp && python -m openhands.resolver.util.identify_token \
+          cd /tmp && python -m openhands.resolver.utils.identify_token \
             --repo ${{ github.repository }} \
             --token ${{ secrets.PAT_TOKEN || github.token }}
 
