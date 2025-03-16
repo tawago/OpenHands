@@ -233,9 +233,7 @@ jobs:
           GIT_USERNAME: ${{ secrets.PAT_USERNAME || 'openhands-agent' }}
           PYTHONPATH: ""
         run: |
-          python openhands/resolver/utils.identify_token \
-            --repo ${{ github.repository }} \
-            --token ${{ secrets.PAT_TOKEN || github.token }}
+          python -c "from openhands.resolver.utils import identify_token; identify_token('${{ secrets.PAT_TOKEN || github.token }}', '${{ github.repository }}')"
 
       - name: Attempt to resolve issue
         env:
